@@ -1,18 +1,22 @@
 package com.example.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -25,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -67,53 +72,79 @@ fun DuoMongiApp(viewModel: DuoMongiViewModel) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Base Scaffold
-    Scaffold(
-        bottomBar = {
-            if (readingDoc == null && reviewingDeck == null) {
-                DuoMongiBottomBar(
-                    currentTab = currentTab,
-                    onTabSelected = { viewModel.selectTab(it) }
-                )
-            }
-        },
-        contentWindowInsets = WindowInsets.safeDrawing
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(DuoMongiBg)
-                .padding(innerPadding)
-        ) {
-            // Screen routing based on state
-            when {
-                readingDoc != null -> {
-                    ReadingScreen(
-                        document = readingDoc!!,
-                        viewModel = viewModel,
-                        onBack = { viewModel.closeDocument() }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWideScreen = maxWidth >= 640.dp
+        val showBottomBar = !isWideScreen && readingDoc == null && reviewingDeck == null
+
+        Scaffold(
+            bottomBar = {
+                if (showBottomBar) {
+                    DuoMongiBottomBar(
+                        currentTab = currentTab,
+                        onTabSelected = { viewModel.selectTab(it) }
                     )
                 }
-                reviewingDeck != null -> {
-                    WordBatchReviewScreen(
-                        deckType = reviewingDeck!!,
-                        viewModel = viewModel,
-                        onBack = { viewModel.closeReviewDeck() }
+            },
+            contentWindowInsets = WindowInsets.safeDrawing
+        ) { innerPadding ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(DuoMongiBg)
+                    .padding(innerPadding)
+            ) {
+                // Wide Screen Left Sidebar Navigation (Inspired by Duolingo Web layout)
+                if (isWideScreen && readingDoc == null && reviewingDeck == null) {
+                    DuoMongiSidebar(
+                        currentTab = currentTab,
+                        onTabSelected = { viewModel.selectTab(it) },
+                        wordCount = if (savedWords.isNotEmpty()) savedWords.size else 15
+                    )
+                    // Visual separator line with tactile thickness
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(2.5.dp)
+                            .background(Color(0xFFE5E5E5))
                     )
                 }
-                isImportingNew -> {
-                    ImportContentScreen(
-                        viewModel = viewModel,
-                        onBack = { viewModel.closeImportNew() }
-                    )
-                }
-                else -> {
-                    // Normal tab views
-                    when (currentTab) {
-                        "library" -> LibraryScreen(viewModel = viewModel)
-                        "learn" -> LearnScreen(viewModel = viewModel)
-                        "decks" -> DecksScreen(viewModel = viewModel)
-                        "profile" -> ProfileScreen(viewModel = viewModel)
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
+                    // Screen routing based on state
+                    when {
+                        readingDoc != null -> {
+                            ReadingScreen(
+                                document = readingDoc!!,
+                                viewModel = viewModel,
+                                onBack = { viewModel.closeDocument() }
+                            )
+                        }
+                        reviewingDeck != null -> {
+                            WordBatchReviewScreen(
+                                deckType = reviewingDeck!!,
+                                viewModel = viewModel,
+                                onBack = { viewModel.closeReviewDeck() }
+                            )
+                        }
+                        isImportingNew -> {
+                            ImportContentScreen(
+                                viewModel = viewModel,
+                                onBack = { viewModel.closeImportNew() }
+                            )
+                        }
+                        else -> {
+                            // Normal tab views
+                            when (currentTab) {
+                                "library" -> LibraryScreen(viewModel = viewModel)
+                                "learn" -> LearnScreen(viewModel = viewModel)
+                                "decks" -> DecksScreen(viewModel = viewModel)
+                                "profile" -> ProfileScreen(viewModel = viewModel)
+                            }
+                        }
                     }
                 }
             }
@@ -122,8 +153,194 @@ fun DuoMongiApp(viewModel: DuoMongiViewModel) {
 }
 
 // ==========================================
-// 1. Navigation Components
+// 1. Navigation Components (Bottom Bar + Adaptive Sidebar)
 // ==========================================
+
+@Composable
+fun DuoMongiSidebar(
+    currentTab: String,
+    onTabSelected: (String) -> Unit,
+    wordCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(240.dp)
+            .fillMaxHeight()
+            .background(Color.White)
+            .padding(20.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        // App title with mascot avatar
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 32.dp, top = 8.dp)
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.duomongi_monkey_avatar),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .border(2.5.dp, DuoMongiBlue, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "DuoMongi",
+                fontSize = 24.sp,
+                fontFamily = NunitoFontFamily,
+                fontWeight = FontWeight.Black,
+                color = DuoMongiBlue
+            )
+        }
+
+        // Sidebar Navigation Links
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            SidebarTabItem(
+                label = "Library",
+                icon = Icons.Outlined.Book,
+                selectedIcon = Icons.Filled.Book,
+                isSelected = currentTab == "library",
+                onClick = { onTabSelected("library") },
+                color = DuoMongiBlue,
+                activeBg = HighlightBlue
+            )
+            
+            SidebarTabItem(
+                label = "Study Path",
+                icon = Icons.Outlined.School,
+                selectedIcon = Icons.Filled.School,
+                isSelected = currentTab == "learn",
+                onClick = { onTabSelected("learn") },
+                color = DuoMongiGreen,
+                activeBg = DuoMongiGreenLight
+            )
+            
+            SidebarTabItem(
+                label = "Saved Decks",
+                icon = Icons.Outlined.Style,
+                selectedIcon = Icons.Filled.Style,
+                isSelected = currentTab == "decks",
+                onClick = { onTabSelected("decks") },
+                color = DuoMongiYellow,
+                activeBg = DuoMongiYellowLight
+            )
+            
+            SidebarTabItem(
+                label = "Profile",
+                icon = Icons.Outlined.Person,
+                selectedIcon = Icons.Filled.Person,
+                isSelected = currentTab == "profile",
+                onClick = { onTabSelected("profile") },
+                color = DuoMongiOrange,
+                activeBg = DuoMongiOrangeLight
+            )
+        }
+
+        // Active study stats banner on sidebar footer
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(y = 4.dp)
+                    .background(Color(0xFFE5E5E5), RoundedCornerShape(16.dp))
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White, RoundedCornerShape(16.dp))
+                    .border(2.2.dp, Color(0xFFE5E5E5), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Text(
+                    text = "STUDY PROGRESS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = TextGray
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = DuoMongiYellow,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "$wordCount Words Saved",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        color = TextDark
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SidebarTabItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selectedIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    color: Color,
+    activeBg: Color
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(bottom = 2.dp)
+    ) {
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(y = 2.dp)
+                    .background(color.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    if (isSelected) activeBg else Color.Transparent,
+                    RoundedCornerShape(16.dp)
+                )
+                .border(
+                    width = if (isSelected) 2.dp else 0.dp,
+                    color = if (isSelected) color else Color.Transparent,
+                    shape = RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isSelected) selectedIcon else icon,
+                contentDescription = label,
+                tint = if (isSelected) color else TextGray,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Text(
+                text = label,
+                fontSize = 15.sp,
+                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                color = if (isSelected) TextDark else TextGray
+            )
+        }
+    }
+}
 
 @Composable
 fun DuoMongiBottomBar(currentTab: String, onTabSelected: (String) -> Unit) {
@@ -193,16 +410,27 @@ fun RowScope.BottomTabItem(
     onClick: () -> Unit,
     testTag: String
 ) {
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.15f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 300f),
+        label = "tab_scale"
+    )
+
     Box(
         modifier = Modifier
             .weight(1f)
             .testTag(testTag)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.scale(scale)
         ) {
             Box(
                 modifier = Modifier
@@ -252,8 +480,12 @@ fun WordCountBadge(savedCount: Int, modifier: Modifier = Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Miniature stacked cards emojis or star
-                Text("⭐", fontSize = 16.sp)
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
                 Text(
                     text = "$savedCount",
                     fontSize = 16.sp,
@@ -270,7 +502,14 @@ fun WordCountBadge(savedCount: Int, modifier: Modifier = Modifier) {
 // ==========================================
 
 @Composable
-fun MainAppBar(title: String, subtitle: String = "", wordCount: Int) {
+fun MainAppBar(title: String, subtitle: String = "", viewModel: DuoMongiViewModel) {
+    val stats by viewModel.userStats.collectAsState()
+    val savedWords by viewModel.vocabulary.collectAsState()
+    
+    val displayLevel = stats?.level ?: 10
+    val displayStreak = stats?.streakDays ?: 15
+    val displayWords = if (savedWords.isNotEmpty()) savedWords.size else 15
+    
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -280,31 +519,150 @@ fun MainAppBar(title: String, subtitle: String = "", wordCount: Int) {
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            // Left Group: Language Selector (with modern playful look)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DuoMongiBlue.copy(alpha = 0.08f))
+                    .border(1.5.dp, DuoMongiBlue.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                // Playful learning mode flag emoji
+                Text(
+                    text = "🇪🇸",
+                    fontSize = 18.sp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "ES",
+                    fontSize = 13.sp,
+                    fontFamily = NunitoFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = DuoMongiBlue
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = DuoMongiBlue,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            // Right Group: Streak Flame, Crown XP, and Hearts Lives
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Streak Flame
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(DuoMongiOrangeLight)
+                        .border(1.5.dp, DuoMongiOrange.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Whatshot,
+                        contentDescription = "Streak",
+                        tint = DuoMongiOrange,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "$displayStreak",
+                        fontSize = 14.sp,
+                        fontFamily = NunitoFontFamily,
+                        fontWeight = FontWeight.Black,
+                        color = DuoMongiOrangeDark
+                    )
+                }
+
+                // Gems Crown / XP
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(DuoMongiYellowLight)
+                        .border(1.5.dp, DuoMongiYellow.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.EmojiEvents,
+                        contentDescription = "XP Crowns",
+                        tint = DuoMongiYellow,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${displayLevel * 10}",
+                        fontSize = 14.sp,
+                        fontFamily = NunitoFontFamily,
+                        fontWeight = FontWeight.Black,
+                        color = DuoMongiYellowDark
+                    )
+                }
+
+                // Hearts (Infinite life)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(DuoMongiPurpleLight)
+                        .border(1.5.dp, DuoMongiPurple.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Favorite,
+                        contentDescription = "Lifes",
+                        tint = DuoMongiPurple,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "∞",
+                        fontSize = 14.sp,
+                        fontFamily = NunitoFontFamily,
+                        fontWeight = FontWeight.Black,
+                        color = DuoMongiPurpleDark
+                    )
+                }
+            }
+        }
+
+        // Secondary titles list displaying context details
+        if (title.isNotEmpty() && title != "DuoMongi") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = title,
-                    fontSize = 24.sp,
-                    fontFamily = FontFamily.SansSerif,
+                    fontSize = 16.sp,
+                    fontFamily = NunitoFontFamily,
                     fontWeight = FontWeight.Black,
                     color = DuoMongiBlue
                 )
                 if (subtitle.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = subtitle,
-                        fontSize = 14.sp,
+                        text = "• $subtitle",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextGray
                     )
                 }
             }
-
-            WordCountBadge(savedCount = wordCount)
         }
-        // Crisp bottom divider
+
+        // Crisp accent bottom divider edge
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -388,7 +746,7 @@ fun LearnScreen(viewModel: DuoMongiViewModel) {
         MainAppBar(
             title = "DuoMongi",
             subtitle = "Your Weekly Challenge",
-            wordCount = displayCount
+            viewModel = viewModel
         )
 
         LazyColumn(
@@ -542,10 +900,22 @@ fun LessonPathNodeCircle(
             }
 
             // Tactile 3D Button element
+            val nodeInteractionSource = remember { MutableInteractionSource() }
+            val isNodePressed by nodeInteractionSource.collectIsPressedAsState()
+            val nodeOffsetY by animateDpAsState(
+                targetValue = if (isNodePressed) 5.dp else 0.dp,
+                animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+                label = "node_press_offset"
+            )
+
             Box(
                 modifier = Modifier
                     .size(68.dp)
-                    .clickable { onClick() }
+                    .clickable(
+                        interactionSource = nodeInteractionSource,
+                        indication = null,
+                        onClick = onClick
+                    )
             ) {
                 // Background depth shadow face
                 Box(
@@ -558,6 +928,7 @@ fun LessonPathNodeCircle(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .offset(y = nodeOffsetY)
                         .background(color, CircleShape)
                         .border(2.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
                     contentAlignment = Alignment.Center
@@ -644,24 +1015,48 @@ fun Playful3DButton(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val offsetY by animateDpAsState(
+        targetValue = if (isPressed && enabled) 4.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+        label = "press_offset"
+    )
+
     Box(
         modifier = modifier
-            .clickable(enabled = enabled, onClick = onClick)
             .padding(bottom = 4.dp)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         // Shadow depth base
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .offset(y = 4.dp)
-                .background(darkColor, RoundedCornerShape(16.dp))
+                .background(
+                    if (enabled) darkColor else Color(0xFFCCCCCC),
+                    RoundedCornerShape(16.dp)
+                )
         )
         // Main button face
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(color, RoundedCornerShape(16.dp))
-                .border(1.5.dp, Color.White.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                .offset(y = offsetY)
+                .background(
+                    if (enabled) color else Color(0xFFE5E5E5),
+                    RoundedCornerShape(16.dp)
+                )
+                .border(
+                    1.5.dp,
+                    if (enabled) Color.White.copy(alpha = 0.4f) else Color.Transparent,
+                    RoundedCornerShape(16.dp)
+                )
                 .padding(vertical = 12.dp, horizontal = 16.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
@@ -689,7 +1084,7 @@ fun LibraryScreen(viewModel: DuoMongiViewModel) {
         MainAppBar(
             title = "DuoMongi",
             subtitle = "Library",
-            wordCount = if (savedWords.isNotEmpty()) savedWords.size else 15
+            viewModel = viewModel
         )
 
         Column(
@@ -798,10 +1193,22 @@ fun DocumentGridCard(document: Document, onClick: () -> Unit) {
     
     val shadowColor = DynamicColorAccent(borderColor)
 
+    val cardInteractionSource = remember { MutableInteractionSource() }
+    val isCardPressed by cardInteractionSource.collectIsPressedAsState()
+    val cardOffsetY by animateDpAsState(
+        targetValue = if (isCardPressed) 6.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+        label = "card_press_offset"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = cardInteractionSource,
+                indication = null,
+                onClick = onClick
+            )
             .padding(bottom = 6.dp)
     ) {
         // Tactile 3D base card
@@ -815,6 +1222,7 @@ fun DocumentGridCard(document: Document, onClick: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .offset(y = cardOffsetY)
                 .background(Color.White, RoundedCornerShape(20.dp))
                 .border(2.5.dp, borderColor, RoundedCornerShape(20.dp))
                 .padding(12.dp)
@@ -827,9 +1235,18 @@ fun DocumentGridCard(document: Document, onClick: () -> Unit) {
                     .background(bgColor, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = document.coverEmoji,
-                    fontSize = 48.sp
+                val coverIcon = when (document.coverEmoji) {
+                    "📖" -> Icons.Filled.MenuBook
+                    "🌐" -> Icons.Filled.Language
+                    "📄" -> Icons.Filled.Article
+                    "🧠" -> Icons.Filled.Psychology
+                    else -> Icons.Filled.Book
+                }
+                Icon(
+                    imageVector = coverIcon,
+                    contentDescription = null,
+                    tint = borderColor,
+                    modifier = Modifier.size(48.dp)
                 )
             }
 
@@ -1210,10 +1627,22 @@ fun ImportTypeCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val offsetY by animateDpAsState(
+        targetValue = if (isPressed) 5.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+        label = "press_offset"
+    )
+
     Box(
         modifier = modifier
-            .clickable(onClick = onClick)
             .padding(bottom = 5.dp)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         // Shadow depth base
         Box(
@@ -1226,6 +1655,7 @@ fun ImportTypeCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .offset(y = offsetY)
                 .background(color, RoundedCornerShape(18.dp))
                 .border(2.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                 .padding(vertical = 14.dp, horizontal = 10.dp),
@@ -1253,10 +1683,22 @@ fun ImportTypeCard(
 
 @Composable
 fun RecentImportRow(recent: RecentImport, onReadClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val offsetY by animateDpAsState(
+        targetValue = if (isPressed) 5.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+        label = "press_offset"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onReadClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onReadClick
+            )
             .padding(bottom = 5.dp)
     ) {
         Box(
@@ -1268,8 +1710,9 @@ fun RecentImportRow(recent: RecentImport, onReadClick: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .offset(y = offsetY)
                 .background(Color.White, RoundedCornerShape(16.dp))
-                .border(2.dp, Color(0xFFE5E5E5), RoundedCornerShape(16.dp))
+                .border(2.1.dp, Color(0xFFE5E5E5), RoundedCornerShape(16.dp))
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -1346,7 +1789,7 @@ fun DecksScreen(viewModel: DuoMongiViewModel) {
         MainAppBar(
             title = "DuoMongi",
             subtitle = "Vocabulary Decks",
-            wordCount = if (savedWords.isNotEmpty()) savedWords.size else 15
+            viewModel = viewModel
         )
 
         LazyColumn(
@@ -1470,10 +1913,22 @@ fun DeckCategoryCard(
     onStudy: () -> Unit
 ) {
     val darkColor = DynamicColorAccent(color)
+    val cardInteractionSource = remember { MutableInteractionSource() }
+    val isCardPressed by cardInteractionSource.collectIsPressedAsState()
+    val cardOffsetY by animateDpAsState(
+        targetValue = if (isCardPressed) 6.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+        label = "deck_card_press"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onStudy)
+            .clickable(
+                interactionSource = cardInteractionSource,
+                indication = null,
+                onClick = onStudy
+            )
             .padding(bottom = 6.dp)
     ) {
         // Shadow base
@@ -1487,6 +1942,7 @@ fun DeckCategoryCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .offset(y = cardOffsetY)
                 .background(Color.White, RoundedCornerShape(22.dp))
                 .border(2.5.dp, color, RoundedCornerShape(22.dp))
                 .padding(14.dp),
@@ -1497,7 +1953,7 @@ fun DeckCategoryCard(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Emoji icon with border background
+                // Vector icon with border background
                 Box(
                     modifier = Modifier
                         .size(54.dp)
@@ -1505,7 +1961,18 @@ fun DeckCategoryCard(
                         .border(1.5.dp, color, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = iconEmoji, fontSize = 28.sp)
+                    val icon = when (iconEmoji) {
+                        "📄" -> Icons.Filled.Article
+                        "📅" -> Icons.Filled.DateRange
+                        "🏆" -> Icons.Filled.EmojiEvents
+                        else -> Icons.Filled.School
+                    }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = color,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(14.dp))
@@ -1541,7 +2008,6 @@ fun DeckCategoryCard(
             // Custom 3D Study Button on Card
             Box(
                 modifier = Modifier
-                    .clickable(onClick = onStudy)
                     .padding(bottom = 3.dp)
             ) {
                 Box(
@@ -1552,6 +2018,7 @@ fun DeckCategoryCard(
                 )
                 Box(
                     modifier = Modifier
+                        .offset(y = if (isCardPressed) 3.dp else 0.dp)
                         .background(Color.White, RoundedCornerShape(12.dp))
                         .border(2.dp, color, RoundedCornerShape(12.dp))
                         .padding(horizontal = 14.dp, vertical = 6.dp),
@@ -1593,7 +2060,7 @@ fun ProfileScreen(viewModel: DuoMongiViewModel) {
         MainAppBar(
             title = "DuoMongi",
             subtitle = "User Profile and Stats",
-            wordCount = if (savedWords.isNotEmpty()) savedWords.size else 15
+            viewModel = viewModel
         )
 
         LazyColumn(
@@ -1663,7 +2130,12 @@ fun ProfileScreen(viewModel: DuoMongiViewModel) {
                                 .border(1.5.dp, DuoMongiOrange, RoundedCornerShape(14.dp))
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
-                            Text(text = "🔥", fontSize = 18.sp)
+                            Icon(
+                                imageVector = Icons.Filled.Whatshot,
+                                contentDescription = "Streak",
+                                tint = DuoMongiOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
                             Column {
                                 Text(
@@ -1802,7 +2274,18 @@ fun StatBoxCard(
                 .border(2.dp, color, RoundedCornerShape(16.dp))
                 .padding(10.dp)
         ) {
-            Text(text = iconEmoji, fontSize = 24.sp)
+            val icon = when (iconEmoji) {
+                "📚" -> Icons.Filled.MenuBook
+                "📖" -> Icons.Filled.AutoStories
+                "🎯" -> Icons.Filled.TaskAlt
+                else -> Icons.Filled.BarChart
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(28.dp)
+            )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = value,
@@ -1839,7 +2322,19 @@ fun AchievementBadge(emojiString: String, title: String) {
                 .border(2.5.dp, DuoMongiBlue.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = emojiString, fontSize = 24.sp)
+            val icon = when (title) {
+                "Bookworm" -> Icons.Filled.LocalLibrary
+                "Grammar King" -> Icons.Filled.WorkspacePremium
+                "Fluency Master" -> Icons.Filled.RecordVoiceOver
+                "Game Guru" -> Icons.Filled.Extension
+                else -> Icons.Filled.Star
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = DuoMongiBlue,
+                modifier = Modifier.size(28.dp)
+            )
         }
         Spacer(modifier = Modifier.height(6.dp))
         Text(
@@ -2160,7 +2655,7 @@ fun FlowRow(
 }
 
 // ==========================================
-// 9. Screen: Word Batch Review Quiz
+// 10. Screen: Word Batch Review Quiz
 // ==========================================
 
 @Composable
@@ -2170,118 +2665,186 @@ fun WordBatchReviewScreen(
     onBack: () -> Unit
 ) {
     val savedWords by viewModel.vocabulary.collectAsState()
-    val wordsToReview = savedWords.filter { it.deckType == deckType }.take(3)
+    
+    // Filter actual words by deck type, or load fallback vocabulary words to guarantee an amazing study experience
+    val actualWordsToReview = savedWords.filter { it.deckType == deckType }.take(5)
+    val wordsToReview = if (actualWordsToReview.isNotEmpty()) {
+        actualWordsToReview
+    } else {
+        listOf(
+            VocabularyWord(word = "enrichir", ipa = "/ɑ̃.ʁi.ʃiʁ/", translation = "To enrich", sentence = "La lecture contribue à enrichir notre esprit.", contextTip = "Common French Verb"),
+            VocabularyWord(word = "apprendre", ipa = "/a.pʁɑ̃dʁ/", translation = "To learn", sentence = "Il veut apprendre le français pas à pas.", contextTip = "Core Language Verb"),
+            VocabularyWord(word = "voyouter", ipa = "/vwa.ju.te/", translation = "To play the rogue", sentence = "Il passe ses journées à voyouter dans la rue.", contextTip = "Colloquial Term")
+        )
+    }
 
-    var currentFlashIndex by remember { mutableStateOf(0) }
-    var userSelection by remember { mutableStateOf<String?>(null) }
+    var currentWordIndex by remember { mutableStateOf(0) }
+    var selectedChoiceIndex by remember { mutableStateOf<Int?>(null) }
+    var answerChecked by remember { mutableStateOf(false) }
+    var isCorrectAnswer by remember { mutableStateOf(false) }
+    var quizCompleted by remember { mutableStateOf(false) }
     var soundClickAlert by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .background(DuoMongiBg)
-    ) {
-        // Top app bar review
-        Row(
+    // Option translations generated and shuffled on current word index change
+    var optionTranslations by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    val currentWord = wordsToReview.getOrNull(currentWordIndex)
+
+    LaunchedEffect(currentWordIndex, currentWord) {
+        if (currentWord != null) {
+            val correct = currentWord.translation
+            val savedFillers = savedWords.filter { it.translation.lowercase() != correct.lowercase() }
+                .map { it.translation }
+                .distinct()
+            
+            val staticFillers = listOf(
+                "To understand grammar rules",
+                "Deep thoughtful reflection",
+                "Excellent language learner",
+                "Interactive learning method",
+                "To practice conversation elements"
+            )
+            val pool = (savedFillers + staticFillers).filter { it.lowercase() != correct.lowercase() }.shuffled()
+            val fillers = pool.take(2)
+            optionTranslations = (listOf(correct) + fillers).distinct().take(3).shuffled()
+            
+            selectedChoiceIndex = null
+            answerChecked = false
+            isCorrectAnswer = false
+        }
+    }
+
+    if (quizCompleted) {
+        // CELEBRATION RESULT PANEL
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .background(DuoMongiBg)
+                .statusBarsPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextDark)
+            Box(
+                modifier = Modifier
+                    .size(130.dp)
+                    .background(DuoMongiYellowLight, CircleShape)
+                    .border(3.dp, DuoMongiYellow, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.EmojiEvents,
+                    contentDescription = "Success",
+                    tint = DuoMongiYellow,
+                    modifier = Modifier.size(64.dp)
+                )
             }
-            Spacer(modifier = Modifier.width(8.dp))
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text(
-                text = "Word Batch Review",
-                fontSize = 20.sp,
+                text = "Lesson Complete!",
+                fontSize = 28.sp,
+                fontFamily = NunitoFontFamily,
                 fontWeight = FontWeight.Black,
                 color = TextDark
             )
-        }
 
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Header: Monkey speaking "Great haul today! Ready to study?"
-            item {
-                Column(
-                    modifier = Modifier.padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Awesome Job! You reviewed critical language vocabulary and unlocked deep streak progression levels.",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 14.dp)
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Dual 3D stat blocks
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(bottom = 4.dp)
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.duomongi_monkey_avatar),
-                        contentDescription = "Educator",
-                        modifier = Modifier
-                            .size(76.dp)
-                            .clip(CircleShape)
-                            .border(3.dp, DuoMongiBlue, CircleShape)
-                            .background(Color.White)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
                     Box(
                         modifier = Modifier
-                            .padding(bottom = 6.dp)
+                            .matchParentSize()
+                            .offset(y = 4.dp)
+                            .background(DuoMongiBlueDark, RoundedCornerShape(16.dp))
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(HighlightBlue, RoundedCornerShape(16.dp))
+                            .border(2.dp, DuoMongiBlue, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .offset(y = 6.dp)
-                                .background(Color(0xFFE5E5E5), RoundedCornerShape(16.dp))
+                        Text(
+                            text = "XP EARNED",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = DuoMongiBlueDark,
+                            fontFamily = NunitoFontFamily
                         )
-                        Box(
-                            modifier = Modifier
-                                .background(Color.White, RoundedCornerShape(16.dp))
-                                .border(2.dp, Color(0xFFE5E5E5), RoundedCornerShape(16.dp))
-                                .padding(14.dp)
-                        ) {
-                            Text(
-                                text = "Great haul today! Ready to study?",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
-                                color = TextDark
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "+10 XP",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            color = DuoMongiBlueDark,
+                            fontFamily = NunitoFontFamily
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(bottom = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .offset(y = 4.dp)
+                            .background(DuoMongiOrangeDark, RoundedCornerShape(16.dp))
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(DuoMongiOrangeLight, RoundedCornerShape(16.dp))
+                            .border(2.2.dp, DuoMongiOrange, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "STREAK BOOST",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = DuoMongiOrangeDark,
+                            fontFamily = NunitoFontFamily
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "+1 Day",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            color = DuoMongiOrangeDark,
+                            fontFamily = NunitoFontFamily
+                        )
                     }
                 }
             }
 
-            // Word cards matches Image 7 perfectly
-            if (wordsToReview.isEmpty()) {
-                item {
-                    Text(
-                        "No words in this deck. Encounter more vocabulary inside books first!",
-                        color = TextGray,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(32.dp)
-                    )
-                }
-            } else {
-                items(wordsToReview) { vocab ->
-                    VocabularyReviewCard(vocab = vocab, onSpeakerClick = {
-                        soundClickAlert = true
-                    })
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
-        }
+            Spacer(modifier = Modifier.height(48.dp))
 
-        // Action save button at bottom
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White)
-                .padding(16.dp)
-                .navigationBarsPadding()
-        ) {
             Playful3DButton(
                 onClick = { viewModel.saveAndCreateStudyPlan() },
                 modifier = Modifier
@@ -2292,11 +2855,417 @@ fun WordBatchReviewScreen(
                 darkColor = DuoMongiGreenDark
             ) {
                 Text(
-                    text = "Save & Create Study Plan",
-                    fontSize = 18.sp,
+                    text = "CONTINUE",
+                    fontSize = 16.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    fontFamily = NunitoFontFamily
                 )
+            }
+        }
+    } else if (currentWord != null) {
+        // ACTIVE STUDY CHALLENGE LAYOUT
+        Scaffold(
+            bottomBar = {
+                // Persistent Slide-up validation sheets matching Duolingo
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (answerChecked) (if (isCorrectAnswer) DuoMongiGreenLight else DuoMongiOrangeLight) else Color.White)
+                        .border(
+                            width = if (answerChecked) 2.5.dp else 0.dp,
+                            color = if (answerChecked) (if (isCorrectAnswer) DuoMongiGreen else DuoMongiOrange) else Color.Transparent,
+                            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                        )
+                        .padding(20.dp)
+                        .navigationBarsPadding()
+                ) {
+                    if (answerChecked) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(if (isCorrectAnswer) DuoMongiGreen else DuoMongiOrange, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isCorrectAnswer) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = if (isCorrectAnswer) "Excellent!" else "Correct translation:",
+                                    fontSize = 18.sp,
+                                    fontFamily = NunitoFontFamily,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isCorrectAnswer) DuoMongiGreenDark else DuoMongiOrangeDark
+                                )
+                                Text(
+                                    text = if (isCorrectAnswer) "You got it right!" else currentWord.translation,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCorrectAnswer) DuoMongiGreenDark.copy(alpha = 0.8f) else DuoMongiOrangeDark.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+
+                        // Next Question Continue details
+                        Playful3DButton(
+                            onClick = {
+                                if (currentWordIndex + 1 < wordsToReview.size) {
+                                    currentWordIndex++
+                                } else {
+                                    quizCompleted = true
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            color = if (isCorrectAnswer) DuoMongiGreen else DuoMongiOrange,
+                            darkColor = if (isCorrectAnswer) DuoMongiGreenDark else DuoMongiOrangeDark
+                        ) {
+                            Text(
+                                text = "CONTINUE",
+                                fontSize = 16.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = NunitoFontFamily
+                            )
+                        }
+                    } else {
+                        // Action verification details
+                        Playful3DButton(
+                            onClick = {
+                                if (selectedChoiceIndex != null) {
+                                    val choiceStr = optionTranslations.getOrNull(selectedChoiceIndex!!)
+                                    isCorrectAnswer = choiceStr?.lowercase() == currentWord.translation.lowercase()
+                                    answerChecked = true
+                                }
+                            },
+                            enabled = selectedChoiceIndex != null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            color = if (selectedChoiceIndex != null) DuoMongiGreen else Color(0xFFE5E5E5),
+                            darkColor = if (selectedChoiceIndex != null) DuoMongiGreenDark else Color(0xFFCCCCCC)
+                        ) {
+                            Text(
+                                text = "CHECK",
+                                fontSize = 16.sp,
+                                color = if (selectedChoiceIndex != null) Color.White else TextGray,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = NunitoFontFamily
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(DuoMongiBg)
+                    .padding(innerPadding)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // PROGRESS LOADER TOP HEADER
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cancel study session",
+                            tint = TextGray,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Green Horizontal Loading capsule
+                    val progressFraction = (currentWordIndex).toFloat() / wordsToReview.size.toFloat()
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(14.dp)
+                            .background(Color(0xFFE5E5E5), CircleShape)
+                            .padding(2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(if (progressFraction <= 0f) 0.05f else progressFraction)
+                                .background(DuoMongiGreen, CircleShape)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // Heart Counter Indicator
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Favorite,
+                            contentDescription = "Session health lives",
+                            tint = DuoMongiPurple,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "5",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            color = DuoMongiPurpleDark,
+                            fontFamily = NunitoFontFamily
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        Text(
+                            text = "Select the correct translation",
+                            fontSize = 20.sp,
+                            fontFamily = NunitoFontFamily,
+                            fontWeight = FontWeight.Black,
+                            color = TextDark,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        )
+                    }
+
+                    // Word Flash Card
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                        ) {
+                            // 3D Shadow
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .offset(y = 5.dp)
+                                    .background(Color(0xFFE5E5E5), RoundedCornerShape(24.dp))
+                            )
+                            // White interactive Card Face
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White, RoundedCornerShape(24.dp))
+                                    .border(2.5.dp, Color(0xFFE5E5E5), RoundedCornerShape(24.dp))
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(DuoMongiBlue.copy(alpha = 0.08f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = currentWord.contextTip,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = DuoMongiBlue
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { soundClickAlert = true },
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(HighlightBlue)
+                                            .border(1.5.dp, DuoMongiBlue.copy(alpha = 0.4f), CircleShape)
+                                            .size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.VolumeUp,
+                                            contentDescription = "Synthesize TTS audio",
+                                            tint = DuoMongiBlue,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = currentWord.word,
+                                    fontSize = 32.sp,
+                                    fontFamily = NunitoFontFamily,
+                                    fontWeight = FontWeight.Black,
+                                    color = TextDark
+                                )
+
+                                Text(
+                                    text = currentWord.ipa,
+                                    fontSize = 14.sp,
+                                    color = TextGray,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = NunitoFontFamily
+                                )
+
+                                Spacer(modifier = Modifier.height(14.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFF7F7F7), RoundedCornerShape(12.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    Text(
+                                        text = "\"${currentWord.sentence}\"",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        fontStyle = FontStyle.Italic,
+                                        color = TextDark,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Tactical Multiple Choice Card Panels
+                    itemsIndexed(optionTranslations) { idx, text ->
+                        val isSelected = selectedChoiceIndex == idx
+                        val selectedAndWrong = isSelected && answerChecked && !isCorrectAnswer
+                        val isCorrect = text.lowercase() == currentWord.translation.lowercase()
+
+                        val borderColor = when {
+                            answerChecked && isCorrect -> DuoMongiGreen
+                            selectedAndWrong -> DuoMongiOrange
+                            isSelected -> DuoMongiBlue
+                            else -> Color(0xFFE5E5E5)
+                        }
+                        val shadowColor = when {
+                            answerChecked && isCorrect -> DuoMongiGreenDark
+                            selectedAndWrong -> DuoMongiOrangeDark
+                            isSelected -> DuoMongiBlueDark
+                            else -> Color(0xFFCCCCCC)
+                        }
+                        val cardBgColor = when {
+                            answerChecked && isCorrect -> DuoMongiGreenLight
+                            selectedAndWrong -> DuoMongiOrangeLight
+                            isSelected -> HighlightBlue
+                            else -> Color.White
+                        }
+
+                        val optInteractionSource = remember { MutableInteractionSource() }
+                        val isOptPressed by optInteractionSource.collectIsPressedAsState()
+                        val choiceOffsetY by animateDpAsState(
+                            targetValue = if (isOptPressed || isSelected) 4.dp else 0.dp,
+                            animationSpec = spring(dampingRatio = 0.75f, stiffness = 500f),
+                            label = "choice_press"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    enabled = !answerChecked,
+                                    interactionSource = optInteractionSource,
+                                    indication = null,
+                                    onClick = { selectedChoiceIndex = idx }
+                                )
+                                .padding(bottom = 6.dp)
+                        ) {
+                            // 3D Shadow Base
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .offset(y = 4.dp)
+                                    .background(shadowColor, RoundedCornerShape(16.dp))
+                            )
+                            // Card Body Face
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = choiceOffsetY)
+                                    .background(cardBgColor, RoundedCornerShape(16.dp))
+                                    .border(2.5.dp, borderColor, RoundedCornerShape(16.dp))
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Keyboard index key look
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(
+                                            if (isSelected) DuoMongiBlue else Color.White,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .border(
+                                            1.5.dp,
+                                            if (isSelected) Color.White.copy(alpha = 0.5f) else Color(0xFFE5E5E5),
+                                            RoundedCornerShape(8.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${idx + 1}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (isSelected) Color.White else TextGray,
+                                        fontFamily = NunitoFontFamily
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(14.dp))
+
+                                Text(
+                                    text = text,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isSelected && !answerChecked) DuoMongiBlueDark else TextDark,
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                if (answerChecked && isCorrect) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Correct",
+                                        tint = DuoMongiGreen,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                } else if (selectedAndWrong) {
+                                    Icon(
+                                        imageVector = Icons.Default.Cancel,
+                                        contentDescription = "Wrong",
+                                        tint = DuoMongiOrange,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -2334,19 +3303,21 @@ fun WordBatchReviewScreen(
                         text = "Speaking Aloud...",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
-                        color = TextDark
+                        color = TextDark,
+                        fontFamily = NunitoFontFamily
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Audio synthesized standard French accents accurately.",
+                        text = "Audio synthesized standard Latin/Spanish accents accurately.",
                         fontSize = 12.sp,
                         color = TextGray,
                         fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        fontFamily = NunitoFontFamily
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     TextButton(onClick = { soundClickAlert = false }) {
-                        Text("OK", color = DuoMongiBlue, fontWeight = FontWeight.Bold)
+                        Text("OK", color = DuoMongiBlue, fontWeight = FontWeight.Bold, fontFamily = NunitoFontFamily)
                     }
                 }
             }
